@@ -1,0 +1,72 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="p-8">
+    <div class="flex justify-between items-center mb-6">
+        <div>
+            <a href="{{ url_for('main.dashboard') }}" class="text-blue-400 hover:text-blue-300 flex items-center gap-2 mb-2">← Back to Dashboard</a>
+            <h1 class="text-3xl font-bold">Settings</h1>
+            <p class="text-gray-400">Manage account and application settings.</p>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div class="bg-gray-800 rounded-2xl p-6">
+            <h3 class="text-xl font-semibold mb-4">Account</h3>
+            <div class="space-y-4 text-sm text-gray-200">
+                <div>
+                    <label class="block text-gray-400 text-sm mb-1">Display Name</label>
+                    <input id="settings-display-name" class="w-full bg-gray-700 border border-gray-600 rounded-xl px-4 py-3" placeholder="Your name" />
+                </div>
+                <div>
+                    <label class="block text-gray-400 text-sm mb-1">Email</label>
+                    <input id="settings-email" class="w-full bg-gray-700 border border-gray-600 rounded-xl px-4 py-3" readonly />
+                </div>
+                <div class="flex gap-3 mt-4">
+                    <button onclick="saveSettings()" class="px-4 py-2 bg-emerald-600 rounded-lg">Save</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-gray-800 rounded-2xl p-6">
+            <h3 class="text-xl font-semibold mb-4">Application</h3>
+            <div class="space-y-4 text-sm text-gray-200">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-gray-300 font-medium">Enable Notifications</p>
+                        <p class="text-gray-400 text-xs">Show desktop and in-app notifications</p>
+                    </div>
+                    <input type="checkbox" id="settings-notifications" class="h-5 w-5" />
+                </div>
+                <div>
+                    <p class="text-gray-300 font-medium">Default Project View</p>
+                    <select id="settings-default-view" class="mt-2 bg-gray-700 border border-gray-600 rounded-xl px-3 py-2">
+                        <option value="dashboard">Dashboard</option>
+                        <option value="projects">Projects</option>
+                        <option value="project-files">Project Files</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function saveSettings() {
+    alert('Settings saved (placeholder)');
+}
+
+onAppReady(() => {
+    // Populate account info from Firebase auth if available
+    const unsubscribe = auth.onAuthStateChanged(user => {
+        if (!user) return;
+        const nameEl = document.getElementById('settings-display-name');
+        const emailEl = document.getElementById('settings-email');
+        if (nameEl) nameEl.value = user.displayName || localStorage.dashboard_username || '';
+        if (emailEl) emailEl.value = user.email || '';
+    });
+    registerPageCleanup(unsubscribe);
+});
+</script>
+
+{% endblock %}

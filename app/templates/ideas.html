@@ -1,0 +1,161 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="p-8">
+    <h1 class="text-3xl font-bold mb-6">Project Ideas Center</h1>
+    <div class="flex justify-between items-center mb-6">
+        <h1 class="text-3xl font-bold">Project Ideas Hub</h1>
+        <button onclick="addNewIdea()" class="px-6 py-3 bg-violet-600 hover:bg-violet-500 rounded-xl flex items-center gap-2">
+            <i class="fas fa-lightbulb"></i> New Idea
+        </button>
+    </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" id="ideas-grid">
+                <!-- Populated by JS -->
+        </div>
+</div>
+
+<!-- New Idea / Upload Modal -->
+<div id="idea-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center">
+    <div class="bg-gray-800 rounded-lg p-6 w-full max-w-2xl">
+        <h3 class="text-xl font-semibold mb-4">New Idea</h3>
+        <div class="space-y-3">
+            <input id="idea-title" placeholder="Title" class="w-full px-3 py-2 rounded-md bg-gray-700" />
+            <textarea id="idea-body" rows="6" placeholder="Describe the idea..." class="w-full px-3 py-2 rounded-md bg-gray-700"></textarea>
+            <div class="flex items-center gap-3">
+                <label class="text-sm text-gray-400">Attach file (optional)</label>
+                <input id="idea-file" type="file" accept=".txt,.md,.pdf" />
+            </div>
+            <div class="flex justify-end gap-3 mt-4">
+                <button id="idea-cancel" class="px-4 py-2 bg-gray-600 rounded-md">Cancel</button>
+                <button id="idea-save" class="px-4 py-2 bg-blue-600 rounded-md">Save Idea</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- View Idea Modal -->
+<div id="idea-view-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center">
+    <div class="bg-gray-800 rounded-lg p-6 w-full max-w-2xl">
+        <div class="flex justify-between items-start">
+            <h3 id="view-title" class="text-xl font-semibold"></h3>
+            <button id="view-close" class="text-gray-400">Close</button>
+        </div>
+        <div id="view-body" class="mt-4 text-gray-200 whitespace-pre-wrap"></div>
+        <div id="view-attachment" class="mt-4"></div>
+    </div>
+</div>
+
+<script>
+    // Ideas collection realtime
+    function listenToIdeas(callback) {
+        return db.collection('ideas').orderBy('createdAt', 'desc').onSnapshot(snap => {
+            const ideas = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+            if (callback) callback(ideas);
+        });
+    }
+
+    async function saveIdea({ title, body, file }) {
+        try {
+            const payload = { title: title || 'Untitled', body: body || '', createdAt: firebase.firestore.FieldValue.serverTimestamp(), updatedAt: firebase.firestore.FieldValue.serverTimestamp() };
+            const docRef = await db.collection('ideas').add(payload);
+            if (file) {
+                const storageRef = storage.ref().child(`ideas/${docRef.id}/${file.name}`);
+                await storageRef.put(file);
+                const url = await storageRef.getDownloadURL();
+                await db.collection('ideas').doc(docRef.id).update({ attachment: { name: file.name, url }, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+            }
+            return docRef.id;
+        } catch (e) {
+            console.error('Save idea failed', e);
+            alert('Failed to save idea');
+        }
+    }
+
+    function renderIdeas(ideas) {
+        const grid = document.getElementById('ideas-grid');
+        if (!ideas || ideas.length === 0) {
+            grid.innerHTML = '<div class="col-span-full text-gray-400">No ideas yet. Click New Idea to add.</div>';
+            return;
+        }
+        grid.innerHTML = ideas.map(i=>{
+            const title = escapeHtml(i.title || 'Untitled');
+            const short = escapeHtml((i.body||'').slice(0,200));
+            const when = i.createdAt && i.createdAt.toDate ? i.createdAt.toDate().toLocaleString() : '';
+            return `
+                <div class="bg-gray-800 p-4 rounded-lg shadow-sm">
+                    <h4 class="font-semibold text-lg mb-2">${title}</h4>
+                    <p class="text-gray-300 text-sm mb-3">${short}${(i.body||'').length>200?'...':''}</p>
+                    <div class="flex items-center justify-between text-sm text-gray-400">
+                        <span>${when}</span>
+                        <div class="flex gap-2">
+                            <button class="px-3 py-1 bg-blue-600 rounded-md" onclick="viewIdea('${i.id}')">View</button>
+                            <button class="px-3 py-1 bg-red-600 rounded-md" onclick="deleteIdea('${i.id}')">Delete</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    function escapeHtml(s){ if(!s) return ''; return String(s).replace(/[&<>"']/g, function(t){return({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[t];}); }
+
+    async function viewIdea(id){
+        const doc = await db.collection('ideas').doc(id).get();
+        if (!doc.exists) return alert('Idea not found');
+        const data = doc.data();
+        document.getElementById('view-title').textContent = data.title || 'Untitled';
+        document.getElementById('view-body').textContent = data.body || '';
+        const attach = document.getElementById('view-attachment');
+        attach.innerHTML = '';
+        if (data.attachment && data.attachment.url) {
+            attach.innerHTML = `<a href="${data.attachment.url}" target="_blank" class="text-blue-400">Download ${escapeHtml(data.attachment.name)}</a>`;
+        }
+        document.getElementById('idea-view-modal').classList.remove('hidden');
+        document.getElementById('idea-view-modal').classList.add('flex');
+    }
+
+    async function deleteIdea(id){
+        if(!confirm('Delete this idea?')) return;
+        await db.collection('ideas').doc(id).delete();
+    }
+
+    onAppReady(()=>{
+        // Modal controls
+        const modal = document.getElementById('idea-modal');
+        document.querySelector('button[onclick="addNewIdea()"]').addEventListener('click', ()=>{ modal.classList.remove('hidden'); modal.classList.add('flex'); });
+        document.getElementById('idea-cancel').addEventListener('click', ()=>{ modal.classList.add('hidden'); modal.classList.remove('flex'); });
+        document.getElementById('idea-save').addEventListener('click', async ()=>{
+            const title = document.getElementById('idea-title').value.trim();
+            const body = document.getElementById('idea-body').value.trim();
+            const fileInput = document.getElementById('idea-file');
+            const file = fileInput.files && fileInput.files[0];
+            await saveIdea({ title, body, file });
+            // Clear and close
+            document.getElementById('idea-title').value=''; document.getElementById('idea-body').value=''; fileInput.value='';
+            modal.classList.add('hidden'); modal.classList.remove('flex');
+        });
+
+        document.getElementById('view-close').addEventListener('click', ()=>{ document.getElementById('idea-view-modal').classList.add('hidden'); document.getElementById('idea-view-modal').classList.remove('flex'); });
+
+        // File drop support: allow uploading .txt/.md and parsing into body
+        document.getElementById('idea-file').addEventListener('change', async (e)=>{
+            const f = e.target.files[0];
+            if (!f) return;
+            if (f.type.startsWith('text/') || f.name.endsWith('.md') || f.name.endsWith('.txt')) {
+                const text = await f.text();
+                // If title empty, try first line
+                const titleEl = document.getElementById('idea-title');
+                if (!titleEl.value.trim()) {
+                    const first = text.split('\n').find(l=>l.trim());
+                    if (first) titleEl.value = first.substring(0,100);
+                }
+                document.getElementById('idea-body').value = text;
+            }
+        });
+
+        // Realtime listener
+        const unsubscribe = listenToIdeas(renderIdeas);
+        registerPageCleanup(unsubscribe);
+    });
+</script>
+
+{% endblock %}

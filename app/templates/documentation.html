@@ -1,0 +1,171 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="p-8">
+    <div class="flex justify-between items-center mb-6">
+        <h1 class="text-3xl font-bold">Documentation</h1>
+        <button onclick="showDocModal()" class="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 rounded-xl flex items-center gap-2 font-medium">
+            <i class="fas fa-plus"></i> New Note
+        </button>
+    </div>
+
+    <p class="text-gray-400 mb-6">Technical notes, deployment notes, README fragments, and markdown docs.</p>
+
+    <div class="mt-4 bg-gray-800 rounded-2xl p-6">
+        <div class="flex gap-4 mb-4">
+            <input id="doc-search" placeholder="Search notes..." class="bg-gray-700 border border-gray-600 rounded-xl px-4 py-3 w-96 focus:outline-none" />
+            <select id="doc-type-filter" class="bg-gray-700 border border-gray-600 rounded-xl px-4 py-3">
+                <option value="">All Types</option>
+                <option value="technical">Technical</option>
+                <option value="deployment">Deployment</option>
+                <option value="readme">README</option>
+                <option value="markdown">Markdown</option>
+            </select>
+            <button onclick="applyDocFilters()" class="px-4 py-2 bg-blue-600 rounded-xl">Filter</button>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div>
+                <div id="docs-list" class="space-y-3">
+                    <!-- list of notes -->
+                </div>
+            </div>
+            <div class="lg:col-span-2 bg-gray-900 rounded-2xl p-4">
+                <div id="doc-preview" class="prose max-w-none text-gray-200 p-4"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal/editor -->
+<template id="doc-modal-template">
+<div id="doc-modal" class="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
+  <div class="bg-gray-800 rounded-3xl p-8 max-w-3xl w-full mx-4">
+    <h2 class="text-2xl font-bold mb-4">New Note</h2>
+    <form id="doc-form" onsubmit="saveDoc(event)">
+      <div class="grid grid-cols-2 gap-4 mb-4">
+        <input id="doc-title" placeholder="Title" required class="bg-gray-700 px-4 py-3 rounded-xl col-span-2" />
+        <select id="doc-type" class="bg-gray-700 px-4 py-3 rounded-xl">
+          <option value="technical">Technical</option>
+          <option value="deployment">Deployment</option>
+          <option value="readme">README</option>
+          <option value="markdown">Markdown</option>
+        </select>
+        <input id="doc-slug" placeholder="Slug (optional)" class="bg-gray-700 px-4 py-3 rounded-xl" />
+      </div>
+      <textarea id="doc-content" rows="10" class="w-full bg-gray-700 px-4 py-3 rounded-xl mb-4" placeholder="Write markdown here..."></textarea>
+      <div class="flex gap-3 justify-end">
+        <button type="button" onclick="closeDocModal()" class="px-4 py-2 bg-gray-700 rounded-xl">Cancel</button>
+        <button class="px-4 py-2 bg-emerald-600 rounded-xl">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+</template>
+
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@2.4.0/dist/purify.min.js"></script>
+<script>
+var allDocs = [];
+
+function renderDocsList(docs = allDocs) {
+  const container = document.getElementById('docs-list');
+  container.innerHTML = '';
+  docs.forEach(d => {
+    const el = document.createElement('div');
+    el.className = 'p-3 bg-gray-800 rounded-xl flex justify-between items-center';
+    el.innerHTML = `
+      <div class="flex-1">
+        <div class="font-medium">${escapeHtml(d.title)}</div>
+        <div class="text-xs text-gray-400">${escapeHtml(d.type || '')} • ${new Date((d.updatedAt && d.updatedAt.seconds?d.updatedAt.seconds*1000:Date.now())).toLocaleString()}</div>
+      </div>
+      <div class="flex gap-2 ml-4">
+        <button onclick="viewDoc('${d.id}')" class="px-3 py-1 bg-blue-600 rounded-xl">View</button>
+        <button onclick="editDoc('${d.id}')" class="px-3 py-1 bg-gray-700 rounded-xl">Edit</button>
+        <button onclick="deleteDoc('${d.id}')" class="px-3 py-1 bg-red-600 rounded-xl">Delete</button>
+      </div>
+    `;
+    container.appendChild(el);
+  });
+  if (!docs || docs.length === 0) container.innerHTML = '<div class="text-gray-400">No notes yet</div>';
+}
+
+function viewDoc(id) {
+  const d = allDocs.find(x=>x.id===id);
+  if (!d) return;
+  const md = d.content || '';
+  const html = DOMPurify.sanitize(marked.parse(md));
+  document.getElementById('doc-preview').innerHTML = html;
+}
+
+function showDocModal(existing=null) {
+  const tpl = document.getElementById('doc-modal-template');
+  document.body.appendChild(tpl.content.cloneNode(true));
+  if (existing) {
+    document.getElementById('doc-title').value = existing.title || '';
+    document.getElementById('doc-type').value = existing.type || 'technical';
+    document.getElementById('doc-slug').value = existing.slug || '';
+    document.getElementById('doc-content').value = existing.content || '';
+    document.querySelector('#doc-modal h2').textContent = 'Edit Note';
+    document.getElementById('doc-form').dataset.editId = existing.id;
+  }
+}
+
+function closeDocModal() { const m = document.getElementById('doc-modal'); if (m) m.remove(); }
+
+async function saveDoc(e) {
+  e.preventDefault();
+  const id = e.target.dataset.editId;
+  const title = document.getElementById('doc-title').value;
+  const type = document.getElementById('doc-type').value;
+  const slug = document.getElementById('doc-slug').value;
+  const content = document.getElementById('doc-content').value;
+  const payload = { title, type, slug, content, updatedAt: firebase.firestore.FieldValue.serverTimestamp() };
+  try {
+    if (id) {
+      await db.collection('docs').doc(id).update(payload);
+    } else {
+      payload.createdAt = firebase.firestore.FieldValue.serverTimestamp();
+      await db.collection('docs').add(payload);
+    }
+  } catch (err) { console.error(err); alert('Save failed: '+err.message); }
+  closeDocModal();
+}
+
+async function editDoc(id) {
+  const doc = await db.collection('docs').doc(id).get();
+  if (!doc.exists) return alert('Note not found');
+  const data = doc.data(); data.id = doc.id; showDocModal(data);
+}
+
+async function deleteDoc(id) {
+  if (!confirm('Delete this note?')) return;
+  try { await db.collection('docs').doc(id).delete(); } catch(e){ console.error(e); }
+}
+
+function escapeHtml(s){ if(!s) return ''; return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+function applyDocFilters(){
+  const q = document.getElementById('doc-search').value.toLowerCase();
+  const t = document.getElementById('doc-type-filter').value;
+  const filtered = allDocs.filter(d=>{
+    const matchesQ = !q || (d.title && d.title.toLowerCase().includes(q)) || (d.content && d.content.toLowerCase().includes(q));
+    const matchesT = !t || d.type===t;
+    return matchesQ && matchesT;
+  });
+  renderDocsList(filtered);
+}
+
+function loadDocs(){
+  const unsubscribe = db.collection('docs').orderBy('updatedAt','desc').onSnapshot(snap=>{
+    allDocs = snap.docs.map(d=>({ id:d.id, ...d.data() }));
+    renderDocsList(allDocs);
+    if (allDocs.length) viewDoc(allDocs[0].id);
+  });
+  registerPageCleanup(unsubscribe);
+}
+
+onAppReady(()=>{ loadDocs(); });
+</script>
+
+{% endblock %}

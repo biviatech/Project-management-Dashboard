@@ -1,0 +1,182 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="min-h-screen flex items-center justify-center bg-gray-900">
+    <div class="max-w-md w-full bg-gray-800 p-8 rounded-3xl shadow-2xl">
+        <h2 class="text-3xl font-bold text-center mb-8">Welcome Back</h2>
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <div class="mb-6 space-y-2">
+                    {% for category, message in messages %}
+                        <div class="px-4 py-3 rounded-xl text-sm {% if category == 'danger' %}bg-red-500/20 text-red-200{% elif category == 'success' %}bg-green-500/20 text-green-200{% else %}bg-blue-500/20 text-blue-200{% endif %}">
+                            {{ message }}
+                        </div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        {% endwith %}
+        <div id="auth-error" class="hidden mb-6 px-4 py-3 rounded-xl text-sm bg-red-500/20 text-red-200"></div>
+        <form id="loginForm" class="space-y-6" method="post" action="{{ url_for('main.login') }}" autocomplete="off">
+            <div>
+                <label class="block text-sm mb-2">Email</label>
+                <input id="email" name="email" type="email" autocomplete="email" autocapitalize="none" spellcheck="false" class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-xl focus:outline-none focus:border-blue-500" placeholder="you@company.com" required>
+            </div>
+            <div>
+                <label class="block text-sm mb-2">Password</label>
+                <input id="password" name="password" type="password" autocomplete="current-password" class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-xl focus:outline-none focus:border-blue-500" placeholder="Your password" required minlength="6">
+            </div>
+             <div>
+                <label class="block text-sm mb-2">Display name (optional)</label>
+                <input id="username" name="username" type="text" autocomplete="name" autocapitalize="none" spellcheck="false" class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-xl focus:outline-none focus:border-blue-500" placeholder="Display name (optional)">
+            </div>
+            <label class="flex items-center gap-2 text-sm text-gray-300">
+                <input type="checkbox" name="remember" class="rounded bg-gray-700 border-gray-600">
+                Remember me
+            </label>
+            <button id="sign-in-btn" type="submit"
+                    class="w-full py-4 bg-blue-600 hover:bg-blue-700 rounded-2xl font-semibold transition">
+                Sign In
+            </button>
+            <button id="create-account-btn" type="button"
+                    class="w-full mt-3 py-3 bg-green-600 hover:bg-green-700 rounded-2xl font-semibold transition">
+                Create Account
+            </button>
+        </form>
+        
+        <div class="my-6 flex items-center">
+            <div class="flex-1 border-t border-gray-600"></div>
+            <span class="px-4 text-gray-400 text-sm">OR</span>
+            <div class="flex-1 border-t border-gray-600"></div>
+        </div>
+        
+        <button id="google-sign-in-btn" type="button"
+                class="w-full py-4 bg-white text-gray-900 hover:bg-gray-100 rounded-2xl font-semibold flex items-center justify-center gap-3">
+            <i class="fab fa-google"></i>
+            Continue with Google
+        </button>
+        
+        <p class="text-center mt-6 text-gray-400 text-sm">Authentication is handled by Firebase.</p>
+        
+        <!-- Demo bypass removed -->
+    </div>
+</div>
+<script>
+(() => {
+    const form = document.getElementById('loginForm');
+    const emailEl = document.getElementById('email');
+    const passwordEl = document.getElementById('password');
+    const nameEl = document.getElementById('username');
+    const rememberEl = document.querySelector('input[name="remember"]');
+    const errorEl = document.getElementById('auth-error');
+    const signInBtn = document.getElementById('sign-in-btn');
+    const createBtn = document.getElementById('create-account-btn');
+    const googleBtn = document.getElementById('google-sign-in-btn');
+    const nextUrl = {{ (request.args.get('next') or url_for('main.dashboard'))|tojson }};
+
+    function setError(message) {
+        errorEl.textContent = message || '';
+        errorEl.classList.toggle('hidden', !message);
+    }
+
+    function setBusy(isBusy) {
+        [signInBtn, createBtn, googleBtn].forEach((button) => {
+            button.disabled = isBusy;
+            button.classList.toggle('opacity-50', isBusy);
+            button.classList.toggle('cursor-not-allowed', isBusy);
+        });
+    }
+
+    if (!window.firebase || !firebase.auth) {
+        setError('Firebase Auth did not load. Check your internet connection or Firebase SDK scripts.');
+        setBusy(true);
+        return;
+    }
+
+    const firebaseConfig = {
+        apiKey: "AIzaSyDfLHnCwOpYIqt155T4EjPDd0doc5SdC-U",
+        authDomain: "project-management-dashb-f86d7.firebaseapp.com",
+        projectId: "project-management-dashb-f86d7",
+        storageBucket: "project-management-dashb-f86d7.firebasestorage.app",
+        messagingSenderId: "80679125807",
+        appId: "1:80679125807:web:0cca9ee8dd7c4fcf5297da",
+        measurementId: "G-M2M576KJF2"
+    };
+    if (!firebase.apps.length) {
+        firebase.initializeApp(firebaseConfig);
+    }
+
+    const firebaseAuth = firebase.auth();
+
+    async function establishServerSession(firebaseUser) {
+        const idToken = await firebaseUser.getIdToken(true);
+        const response = await fetch('/auth/session', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({
+                idToken,
+                name: nameEl.value.trim() || firebaseUser.displayName || '',
+                remember: rememberEl.checked,
+                next: nextUrl
+            })
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.ok) {
+            throw new Error(data.error || 'Could not start server session.');
+        }
+        window.location.href = data.redirect || nextUrl;
+    }
+
+    function friendlyFirebaseError(error) {
+        const code = error && error.code ? error.code : '';
+        if (code === 'auth/email-already-in-use') return 'That email is already registered.';
+        if (code === 'auth/user-not-found' || code === 'auth/wrong-password' || code === 'auth/invalid-credential') return 'Invalid email or password.';
+        if (code === 'auth/popup-closed-by-user') return 'Google sign-in was cancelled.';
+        if (code === 'auth/weak-password') return 'Password should be at least 6 characters.';
+        return error.message || 'Authentication failed.';
+    }
+
+    form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        setError('');
+        setBusy(true);
+        try {
+            const credential = await firebaseAuth.signInWithEmailAndPassword(emailEl.value.trim(), passwordEl.value);
+            await establishServerSession(credential.user);
+        } catch (error) {
+            setError(friendlyFirebaseError(error));
+            setBusy(false);
+        }
+    });
+
+    createBtn.addEventListener('click', async () => {
+        if (!form.reportValidity()) return;
+        setError('');
+        setBusy(true);
+        try {
+            const credential = await firebaseAuth.createUserWithEmailAndPassword(emailEl.value.trim(), passwordEl.value);
+            if (nameEl.value.trim()) {
+                await credential.user.updateProfile({ displayName: nameEl.value.trim() });
+            }
+            await establishServerSession(credential.user);
+        } catch (error) {
+            setError(friendlyFirebaseError(error));
+            setBusy(false);
+        }
+    });
+
+    googleBtn.addEventListener('click', async () => {
+        setError('');
+        setBusy(true);
+        try {
+            const provider = new firebase.auth.GoogleAuthProvider();
+            const credential = await firebaseAuth.signInWithPopup(provider);
+            await establishServerSession(credential.user);
+        } catch (error) {
+            setError(friendlyFirebaseError(error));
+            setBusy(false);
+        }
+    });
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enterprise Tech PM Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Firebase JS SDK -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body class="bg-gray-900 text-white">
+    {% if not request.path.endswith('/login') and not request.path == '/' %}
+    <div class="flex h-screen">
+        <!-- Sidebar -->
+        <div class="w-64 bg-gray-800 border-r border-gray-700 flex flex-col">
+            <div class="p-6 border-b border-gray-700">
+                <h1 class="text-2xl font-bold text-blue-400">BIVIA Tech</h1>
+                <p class="text-xs text-gray-400">Project Command Center</p>
+            </div>
+            <nav class="flex-1 p-4">
+                <a href="{{ url_for('main.dashboard') }}" class="flex items-center px-4 py-3 text-gray-300 hover:bg-gray-700 rounded-lg mb-1">
+                    <i class="fas fa-tachometer-alt mr-3"></i> Dashboard
+                </a>
+                <a href="{{ url_for('main.projects') }}" class="flex items-center px-4 py-3 text-gray-300 hover:bg-gray-700 rounded-lg mb-1">
+                    <i class="fas fa-folder mr-3"></i> Projects
+                </a>
+                <a href="{{ url_for('main.ideas') }}" class="flex items-center px-4 py-3 text-gray-300 hover:bg-gray-700 rounded-lg mb-1">
+                    <i class="fas fa-lightbulb mr-3"></i> Ideas Center
+                </a>
+                <a href="/tasks" class="flex items-center px-4 py-3 text-gray-300 hover:bg-gray-700 rounded-lg mb-1">
+                    <i class="fas fa-tasks mr-3"></i> Tasks
+                </a>
+                <a href="/documentation" class="flex items-center px-4 py-3 text-gray-300 hover:bg-gray-700 rounded-lg mb-1">
+                    <i class="fas fa-book mr-3"></i> Documentation
+                </a>
+                <a href="/team" class="flex items-center px-4 py-3 text-gray-300 hover:bg-gray-700 rounded-lg mb-1">
+                    <i class="fas fa-users mr-3"></i> Team
+                </a>
+                <a href="/archive" class="flex items-center px-4 py-3 text-gray-300 hover:bg-gray-700 rounded-lg mb-1">
+                    <i class="fas fa-archive mr-3"></i> Archive
+                </a>
+                <a href="{{ url_for('main.project_files') }}" id="nav-project-files" class="flex items-center px-4 py-3 text-gray-300 hover:bg-gray-700 rounded-lg mb-1">
+                    <i class="fas fa-folder-open mr-3"></i> Project Files
+                </a>
+                <a href="/settings" class="flex items-center px-4 py-3 text-gray-300 hover:bg-gray-700 rounded-lg mb-1">
+                    <i class="fas fa-cog mr-3"></i> Settings
+                </a>
+                <!-- More nav items -->
+            </nav>
+            <div class="p-4 border-t border-gray-700">
+                <div class="flex items-center">
+                    <button onclick="firebase.auth().signOut().finally(() => { window.location.href='{{ url_for('main.logout') }}'; })" title="Click to log out" class="flex items-center gap-3 w-full text-left">
+                        <div class="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-sm font-bold" id="user-avatar">👤</div>
+                        <div class="ml-3">
+                            <p class="text-sm" id="user-name">{{ current_user.name or current_user.id }}</p>
+                            <p class="text-xs text-gray-400" id="user-role">{{ current_user.role|title }}</p>
+                        </div>
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Main Content -->
+        <div class="flex-1 overflow-auto">
+    {% endif %}
+
+    {% if not request.path.endswith('/login') and not request.path == '/' %}
+    <div class="w-full bg-gray-800 border-b border-gray-700 sticky top-0 z-20">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-14">
+                <div class="flex items-center gap-4">
+                    <input id="global-search" type="search" placeholder="Search projects, tasks..." class="bg-gray-700 text-sm text-gray-200 px-3 py-2 rounded-lg w-64 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+                <div class="flex items-center gap-4">
+                    <button id="recent-activity-btn" class="relative p-2 rounded-full hover:bg-gray-700">
+                        <i class="fas fa-history text-gray-300"></i>
+                    </button>
+                    <button id="notifications-btn" class="relative p-2 rounded-full hover:bg-gray-700">
+                        <i class="fas fa-bell text-gray-300"></i>
+                        <span id="notif-count" class="absolute -top-0.5 -right-0.5 bg-red-500 text-xs text-white rounded-full px-1" style="display:none">0</span>
+                    </button>
+                    <!-- Project Files moved to sidebar -->
+                    <div class="flex items-center gap-3">
+                        <div class="relative">
+                            <button id="theme-button" title="Click to cycle theme — Shift+Click for menu" aria-expanded="false" aria-controls="theme-menu" class="px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg flex items-center text-sm">
+                                <i id="theme-icon" class="fas fa-moon text-gray-300"></i>
+                            </button>
+                            <div id="theme-menu" class="hidden absolute right-0 mt-2 w-40 bg-gray-800 border border-gray-700 rounded-md p-1 shadow-lg z-50">
+                                <button class="w-full text-left px-3 py-2 hover:bg-gray-700 rounded flex items-center gap-2" data-theme="light">
+                                    <i class="fas fa-sun text-yellow-400"></i>
+                                    <span>Light</span>
+                                </button>
+                                <button class="w-full text-left px-3 py-2 hover:bg-gray-700 rounded flex items-center gap-2" data-theme="dark">
+                                    <i class="fas fa-moon text-gray-300"></i>
+                                    <span>Dark</span>
+                                </button>
+                                <button class="w-full text-left px-3 py-2 hover:bg-gray-700 rounded flex items-center gap-2" data-theme="system">
+                                    <i class="fas fa-desktop text-green-400"></i>
+                                    <span>System</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <script>
+        window.onAppReady = window.onAppReady || function(handler) {
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', handler, { once: true });
+            } else {
+                handler();
+            }
+        };
+        window.registerPageCleanup = window.registerPageCleanup || function() {};
+    </script>
+
+    <main id="app-content">
+        {% block content %}{% endblock %}
+    </main>
+
+    {% if not request.path.endswith('/login') and not request.path == '/' %}
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <div class="fixed bottom-4 right-4 z-50 space-y-2 max-w-sm">
+                    {% for category, message in messages %}
+                        <div class="px-4 py-3 rounded-lg shadow-lg text-sm {% if category == 'danger' %}bg-red-600 text-white{% elif category == 'success' %}bg-green-600 text-white{% else %}bg-blue-600 text-white{% endif %}">
+                            {{ message }}
+                        </div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        {% endwith %}
+    {% endif %}
+
+    {% if not request.path.endswith('/login') and not request.path == '/' %}
+        </div>
+    </div>
+    {% endif %}
+        <!-- Notification / Activity Modal -->
+        <div id="notif-modal" class="fixed inset-0 bg-black bg-opacity-60 hidden items-center justify-center z-50">
+            <div class="bg-gray-800 w-full max-w-3xl rounded-2xl p-6 mx-4">
+                <div class="flex justify-between items-start">
+                    <h3 class="text-xl font-semibold">Notifications & Recent Activity</h3>
+                    <button id="notif-close" class="text-gray-400">Close</button>
+                </div>
+                <div id="notif-content" class="mt-4 space-y-4 text-sm text-gray-200">
+                    <!-- Filled by JS -->
+                    <div class="text-gray-400">Loading...</div>
+                </div>
+            </div>
+        </div>
+        
+        <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+</body>
+</html>
